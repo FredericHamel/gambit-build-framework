@@ -4,6 +4,7 @@
 (##include "~~lib/gambit#.scm")
 (##include "~~lib/_gambit#.scm")
 
+;; Maybe at more meta-info
 (define-type build-info
   type
   target
@@ -77,6 +78,7 @@
 
 (define intermediate-files '())
 
+;; Use a list.
 (define (compile file)
   (let ((target (or (build-info-target info) 'C)))
     (create-directory-tree file build-dir)
@@ -92,11 +94,12 @@
         options: opts
         output: outdir)))
 
-;; Only fo dynamic C
-(define (link)
+;; Only fo dynamic 
+(define (link-dynamic)
   (let ((last-file
           (list-ref intermediate-files
-                    (- (length intermediate-files) 1))))
+                    (- (length intermediate-files) 1)))
+        (target (or (build-info-target info) 'C)))
     (let ((link-intermediate
             (link-flat intermediate-files
                        output: (path-expand
@@ -104,17 +107,18 @@
                                    (path-strip-extension last-file)
                                    ".o1"
                                    (path-extension last-file))))))
-    (##gambcomp 'C 'dyn #f
+    (##gambcomp target 'dyn #f
         (append
           (map (lambda (file)
                  (println file)
-                 (compile-file (path-expand file) options: '((obj))
+                 (compile-file (path-expand file)
+                               options: (cons `(target ,target) '((obj)))
                                cc-options: "-D___DYNAMIC"))
                intermediate-files)
           (list
             (compile-file
               link-intermediate
-              options: '((obj))
+              options: (cons `(target ,target) '((obj)))
               cc-options: "-D___DYNAMIC")))
         (string-append (path-strip-extension last-file) ".o1")
         #f '()))))
