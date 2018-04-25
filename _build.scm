@@ -97,21 +97,24 @@
   (let ((last-file
           (list-ref intermediate-files
                     (- (length intermediate-files) 1))))
-(println
-  (object->string
-    (append
-      (map (lambda (file)
-             (compile-file file options: '((obj))
-                             cc-options: "-D___DYNAMIC"))
-           intermediate-files)
-      (list
-        (compile
-          (link-flat intermediate-files
-                           output: (path-expand
-                                     (string-append
-                                       (path-strip-extension last-file)
-                                       ".o1"
-                                       (path-extension last-file)))
-                           build-dir))
-        options: '((obj))
-        cc-options: "-D___DYNAMIC"))))))
+    (let ((link-intermediate
+            (link-flat intermediate-files
+                       output: (path-expand
+                                 (string-append
+                                   (path-strip-extension last-file)
+                                   ".o1"
+                                   (path-extension last-file))))))
+    (##gambcomp 'C 'dyn #f
+        (append
+          (map (lambda (file)
+                 (println file)
+                 (compile-file (path-expand file) options: '((obj))
+                               cc-options: "-D___DYNAMIC"))
+               intermediate-files)
+          (list
+            (compile-file
+              link-intermediate
+              options: '((obj))
+              cc-options: "-D___DYNAMIC")))
+        (string-append (path-strip-extension last-file) ".o1")
+        #f '()))))
