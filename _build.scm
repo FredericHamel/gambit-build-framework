@@ -69,7 +69,7 @@
 (define (setup)
   (let* ((target (or (build-info-target info) 'C))
          (target-build-folder-name
-           (string-append (symbol->string target) "@" (##system-version-string)))
+           (string-append (##system-version-string) "@" (symbol->string target)))
          (cwd (current-directory))
          (relative-output-directory (path-expand
                                       target-build-folder-name build-dir)))
