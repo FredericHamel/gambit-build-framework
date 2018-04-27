@@ -79,16 +79,16 @@
 (define intermediate-files '())
 
 ;; Use a list.
-(define (compile file)
+(define (compile file #!rest files)
   (let ((target (or (build-info-target info) 'C)))
     (create-directory-tree file build-dir)
     (set! intermediate-files
-      (cons (compile-file-to-target file options: (list (list 'target target))
-                            output: (path-expand
-                                      (path-directory
-                                        file)
-                                      build-dir))
-            intermediate-files))
+      (map (lambda (file)
+             (compile-file-to-target file options: `((target ,target))
+                                     output: (path-expand (path-directory
+                                                            file)
+                                                          build-dir)))
+           (cons file files)))
 
     #;(compile-file file
         options: opts
