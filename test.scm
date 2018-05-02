@@ -1,1 +1,1 @@
-(println "Hello")
+(println "Loading test.scm")
