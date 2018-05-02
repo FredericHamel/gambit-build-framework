@@ -67,7 +67,7 @@
   (set! build-dir new-build))
 
 (define (setup)
-  (let* ((target (or (build-info-target info) 'C))
+  (let* ((target (or (build-info-target info) (c#default-target)))
          (target-build-folder-name
            (string-append (##system-version-string) "@" (symbol->string target)))
          (cwd (current-directory))
@@ -80,7 +80,7 @@
 
 ;; Use a list.
 (define (compile file #!rest files)
-  (let ((target (or (build-info-target info) 'C)))
+  (let ((target (or (build-info-target info) (c#default-target))))
     (create-directory-tree file build-dir)
     (set! intermediate-files
       (map (lambda (file)
