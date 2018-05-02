@@ -94,7 +94,7 @@
         options: opts
         output: outdir)))
 
-;; Only fo dynamic 
+;; Only for dynamic
 (define (link-dynamic)
   (let ((last-file
           (list-ref intermediate-files
