@@ -101,7 +101,8 @@
                     (- (length intermediate-files) 1)))
         (target (or (build-info-target info) 'C)))
     (let ((link-intermediate
-            (link-flat intermediate-files
+            (link-flat (map (lambda (x) (cons x '((preload . #f))))
+                            intermediate-files)
                        output: (path-expand
                                  (string-append
                                    (path-strip-extension last-file)
