@@ -79,46 +79,83 @@
 (define intermediate-files '())
 
 ;; Use a list.
-(define (compile file #!rest files)
+(define (compile arg #!rest args)
   (let ((target (or (build-info-target info) (c#default-target))))
-    (create-directory-tree file build-dir)
-    (set! intermediate-files
-      (map (lambda (file)
-             (compile-file-to-target file options: `((target ,target))
-                                     output: (path-expand (path-directory
-                                                            file)
-                                                          build-dir)))
-           (cons file files)))
-
-    #;(compile-file file
-        options: opts
-        output: outdir)))
+    (let loop ((rev-files '())
+               (file-opts '())
+               (rest (cons arg args)))
+      (if (pair? rest)
+        (let ((opt (car rest))
+              (opts-rest (cdr rest)))
+          (cond
+            ((keyword? opt)
+             (case opt
+               ((preload:)
+                (if (pair? opts-rest)
+                  (let ((bool (car opts-rest)))
+                    (if (boolean? bool)
+                      (loop rev-files
+                            (cons
+                              (cons 'preload bool)
+                              file-opts)
+                            (cdr opts-rest))
+                      (error "Expected boolean")))
+                  (error "Missing argument to preload")))
+               (else
+                 (error "Unknown keyword " opt)))
+            ((string? opt)
+             (loop (cons
+                     (if (null? file-opts)
+                       opt
+                       (cons opt file-opts)) rev-files)
+                   '()
+                   (cdr rest)))
+            (else
+              (error "Not supported yet " opt))))
+        (let ((files-lst (reverse rev-files)))
+          (set! intermediate-files
+            (map (lambda (file-and-opt)
+                   (let* ((has-opt? (pair? file-and-opt))
+                          (file (if has-opt? (car file-and-opt) file-and-opt)))
+                     (create-directory-tree file build-dir)
+                     (let ((targ-file (compile-file-to-target
+                                        file
+                                        options: `((target ,target))
+                                        output: (path-expand
+                                                  (path-directory
+                                                    file)
+                                                  build-dir))))
+                       (if has-opt?
+                         (cons targ-file (cdr file-and-opt))
+                         targ-file))))
+                 files-lst)))))))
 
 ;; Only for dynamic
 (define (link-dynamic)
-  (let ((last-file
+  (let* ((last-file-opt
           (list-ref intermediate-files
                     (- (length intermediate-files) 1)))
-        (target (or (build-info-target info) 'C)))
+         (last-file (if (pair? last-file-opt) (car last-file-opt) last-file-opt))
+         (target (or (build-info-target info) (c#default-target))))
     (let ((link-intermediate
             (link-flat intermediate-files
                        output: (path-expand
                                  (string-append
                                    (path-strip-extension last-file)
                                    ".o1"
-                                   (path-extension last-file))))))
-    (##gambcomp target 'dyn #f
-        (append
-          (map (lambda (file)
-                 (println file)
-                 (compile-file (path-expand file)
-                               options: (cons `(target ,target) '((obj)))
-                               cc-options: "-D___DYNAMIC"))
-               intermediate-files)
-          (list
-            (compile-file
-              link-intermediate
-              options: (cons `(target ,target) '((obj)))
-              cc-options: "-D___DYNAMIC")))
-        (string-append (path-strip-extension last-file) ".o1")
-        #f '()))))
+                                   (path-extension last-file)))
+                       warnings?: #f)))
+      (##gambcomp target 'dyn #f
+       (append
+         (map (lambda (file-opt)
+                (compile-file (path-expand (if (pair? file-opt) (car file-opt) file-opt))
+                              options: (cons `(target ,target) '((obj)))
+                              cc-options: "-D___DYNAMIC"))
+              intermediate-files)
+         (list
+           (compile-file
+             link-intermediate
+             options: (cons `(target ,target) '((obj)))
+             cc-options: "-D___DYNAMIC")))
+       (string-append (path-strip-extension last-file) ".o1")
+       #f '()))))
