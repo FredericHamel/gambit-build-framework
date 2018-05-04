@@ -102,12 +102,9 @@
                       (error "Expected boolean")))
                   (error "Missing argument to preload")))
                (else
-                 (error "Unknown keyword " opt)))
+                 (error "Unknown keyword " opt))))
             ((string? opt)
-             (loop (cons
-                     (if (null? file-opts)
-                       opt
-                       (cons opt file-opts)) rev-files)
+             (loop (cons (cons opt file-opts) rev-files)
                    '()
                    (cdr rest)))
             (else
@@ -115,8 +112,8 @@
         (let ((files-lst (reverse rev-files)))
           (set! intermediate-files
             (map (lambda (file-and-opt)
-                   (let* ((has-opt? (pair? file-and-opt))
-                          (file (if has-opt? (car file-and-opt) file-and-opt)))
+                   (let* (#;(has-opt? (pair? file-and-opt))
+                          (file (car file-and-opt)))
                      (create-directory-tree file build-dir)
                      (let ((targ-file (compile-file-to-target
                                         file
@@ -125,9 +122,7 @@
                                                   (path-directory
                                                     file)
                                                   build-dir))))
-                       (if has-opt?
-                         (cons targ-file (cdr file-and-opt))
-                         targ-file))))
+                         (cons targ-file (cdr file-and-opt)))))
                  files-lst)))))))
 
 ;; Only for dynamic
