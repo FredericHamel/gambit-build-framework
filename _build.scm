@@ -8,7 +8,57 @@
 (define-type build-info
   type
   target
-  other)
+  options)
+
+(define-type project
+  constructor: make-raw-project
+  prefix
+  source-files ;; With options
+  intermediate-files
+  intermediate-obj-files
+  linker-options)
+
+;; Some global state
+(define project-object (make-parameter #f))
+(define dependency-list (make-parameter '()))
+;; Last dependancy project object
+(define dependency-object (make-parameter #f))
+
+(define (make-project! name source-files #!optional (linker-options #f))
+  (let ((p (make-raw-project name source-files #f #f linker-options)))
+    ;; Dependancy if not main project.
+    (if (project-object)
+      (dependency-object p)
+      (project-object p))
+    p))
+
+;; name: fullname of the library (i.e. github.com/feeley/crypto)
+(define (library name)
+  (if (project-object)
+    (and
+      (not (member name (dependency-list)))
+      (let ((fullpath (path-expand
+                        ;; Should allow the build script to be rename
+                        ;; from the command line.
+                        (path-expand "package.sc" name)
+                        (or (getenv "R7RS_LIBRARY_PATH" #f)
+                            (##os-path-gambitdir-map-lookup "R7RS")
+                            "~/.r7rs"))))
+        (if (file-exists? fullpath)
+          ;; Resolve lib
+          (parameterize
+            ;; Clone current build ctx
+            (#;(project-object (project-object))
+             (dependency-object #f))
+            (and (not (member name (dependency-list)))
+                 (begin
+                   (load fullpath)
+                   (dependency-list (cons name (dependency-list)))))
+            (project-prefix-set! (dependency-object) name)
+            (dependency-object))
+
+          (error "FileNotFound: " fullpath))))
+    (error "Main project should be declare")))
 
 (define verbosity-level 0)
 
@@ -75,6 +125,188 @@
                                       target-build-folder-name build-dir)))
     (set! build-dir (path-expand relative-output-directory cwd))
     (create-directory-tree relative-output-directory cwd)))
+
+
+(define (add-sources arg #!rest args)
+  (let loop ((rev-files '())
+             (file-opts '())
+             (rest (cons arg args)))
+    (if (pair? rest)
+      (let ((opt (car rest))
+            (opts-rest (cdr rest)))
+        (cond
+          ((keyword? opt)
+           (case opt
+             ((preload:)
+              (if (pair? opts-rest)
+                (let ((bool (car opts-rest)))
+                  (if (boolean? bool)
+                    (loop rev-files
+                          (cons
+                            (cons 'preload bool)
+                            file-opts)
+                          (cdr opts-rest))
+                    (error "Expected boolean")))
+                (error "Missing argument to preload")))
+             ((ld-options:)
+              ; macro-check-string arg n (add-source arg . args) ...
+              (if (pair? opts-rest)
+                (let ((arg (car opts-rest)))
+                  (if (string? arg)
+                    (loop rev-files
+                          (cons
+                            (cons (string->symbol (keyword->string opt)) arg)
+                            file-opts)
+                          (cdr opts-rest))
+                    (error "Expected string")))
+                (error "Missing argument to preload")))
+
+             (else
+               (error "Unknown keyword " opt))))
+          ((string? opt)
+           (loop (cons (cons opt file-opts) rev-files)
+                 '()
+                 (cdr rest)))
+          (else
+            (error "Not supported yet " opt))))
+      (reverse rev-files))))
+
+(define (compile-project! project)
+  (println "project: " project)
+  (and (project? project)
+       (let ((target (build-info-target info)))
+         (project-intermediate-files-set! project
+           (map (lambda (file-and-opt)
+                  (let* ((file (car file-and-opt))
+                         (file-ext (path-extension file))
+                         ;; Should not be there.
+                         (prefix (if (eq? project (project-object))
+                                   "src"
+                                   ;; FIXME: project-name is not a good thing
+                                   (project-prefix project))))
+
+                    (create-directory-tree (path-expand file prefix) build-dir)
+                    (let ((targ-file (compile-file-to-target
+                                       file
+                                       options: `((target ,target))
+                                       output: (path-expand
+                                                 (path-directory
+                                                   file)
+                                                 (path-expand
+                                                   prefix ;; change dir
+                                                   build-dir)))))
+                      (cons targ-file (cdr file-and-opt)))))
+
+                (project-source-files project)))
+         (project-intermediate-obj-files-set! project
+           (map (lambda (file-and-opt)
+                  (let* ((file (car file-and-opt))
+                         (file-ext (path-extension file))
+                         #;(prefix (if (eq? project project-object) "src" (project-name project))))
+                    (let ((obj-file (compile-file
+                                      file
+                                      options: `((obj))
+                                      output: (path-expand
+                                                (path-directory file)
+                                                build-dir
+                                                #;(path-expand prefix build-dir))
+                                      cc-options: "-D___DYNAMIC")))
+                      obj-file)))
+
+                (project-intermediate-files project))))))
+
+
+(define (libraries #!rest lst)
+  (if (pair? lst)
+    (let ((lib (library (car lst))))
+      (if lib
+        (cons lib (libraries (cdr lst)))
+        (libraries (cdr lst))))
+    lst))
+
+(define (link project #!key (dependencies #f) (link-options #f))
+  (compile-project! project)
+  #;(if (pair? dependencies)
+    (for-each
+      (lambda (dep)
+        (compile-project! dep))
+      dependencies))
+
+  ;; Only if main-project
+  (if (eq? project (project-object))
+    (let* ((target (build-info-target info))
+           (global-options (build-info-options info)))
+      ;; Link should be there
+      (case (or (build-info-type info) 'dyn)
+        ((dyn)
+         (println "[Notices] Build type 'dyn not completed yet")
+         #;(error "Build type 'dyn not implemented yet")
+         (let* ((intermediate-files (project-intermediate-files project))
+                (last-file-opt
+                  (list-ref intermediate-files
+                            (- (length intermediate-files) 1)))
+                (last-file
+                  (path-strip-directory
+                    (if (pair? last-file-opt)
+                      (car last-file-opt)
+                      last-file-opt)))
+                (link-file
+                  (link-flat (project-intermediate-files project)
+                             output: (path-expand
+                                       (string-append
+                                         (path-strip-extension
+                                           last-file)
+                                         ".o1"
+                                         (path-extension last-file))
+                                       build-dir)
+                             warnings?: #f))
+                (link-file-obj
+                  (compile-file
+                    link-file
+                    options: (cons '(target C) '((obj)))
+                    cc-options: "-D___DYNAMIC")))
+         ; FIXME: change 'C with build-target
+         (println project)
+         (##gambcomp 'C 'dyn build-dir
+          (##append
+            (project-intermediate-obj-files project)
+            (##list link-file-obj))
+
+          (path-expand
+            (path-strip-directory
+              (string-append (path-strip-extension last-file) ".o1"))
+            build-dir)
+          #f (if link-options (##list (##cons "LD_OPTIONS" link-options)) '()))
+         (delete-file link-file-obj)
+         (delete-file link-file)))
+
+        ((exe)
+         (error "Build type 'exe build not implemented yet"))
+
+        (else
+          (error "Build type not supported")))
+
+      ;; Cleanup
+      #;(and dependencies
+           (for-each
+             (lambda (dep)
+               (for-each
+                 (lambda (file)
+                   (delete-file file))
+                 (project-intermediate-files dep)))
+             dependencies))
+
+      (for-each
+        (lambda (file-opts)
+          (delete-file (car file-opts)))
+        (project-intermediate-files project))
+
+      (for-each
+        (lambda (file)
+          (delete-file file))
+        (project-intermediate-obj-files project))
+      (delete-directory (path-expand "src" build-dir)))
+    #;(add-linker-options project-object link-options)))
 
 (define intermediate-files '())
 
