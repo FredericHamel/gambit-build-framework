@@ -96,25 +96,34 @@
   (let loop ((cl (cdr (command-line)))
              (type #f)
              (target #f)
-             (other '()))
+             (options '()))
     (if (pair? cl)
       (let ((arg (car cl))
             (rest (cdr cl)))
         (cond
+          ((string=? arg "-debug")
+           (loop rest type target (cons '(debug) options)))
           ((string=? arg "-dynamic")
-           (loop rest 'dyn target other))
+           (if type
+             (error "Build type is already defined")
+             (loop rest 'dyn target options)))
 
           ((string=? arg "-exe")
-           (loop rest 'exe target other))
+           (if type
+             (error "Build type is already defined")
+             (loop rest 'exe target options)))
 
           ((string=? arg "-target")
            (if (pair? rest)
-             (let ((new-target (string->symbol (car rest))))
-               (loop (cdr rest) type new-target other))
+             (if target
+               (error "Build target is already defined")
+               (let ((new-target (string->symbol (car rest))))
+                 (loop (cdr rest) type new-target options)))
              (error "Missing argument to -target")))
           (else
-            (error "Not implemented"))))
-      (make-build-info type target other))))
+            (error (string-append "Not a supported argument '" arg "'")))))
+      (make-build-info (or type 'dyn)
+                       (or target (c#default-target)) options))))
 
 (define build-dir ".builds/")
 
