@@ -101,6 +101,17 @@
                             (cdr opts-rest))
                       (error "Expected boolean")))
                   (error "Missing argument to preload")))
+               ((ld-options: cc-options:)
+                (if (pair? opts-rest)
+                  (let ((arg (car opts-rest)))
+                    (if (string? arg)
+                      (loop rev-files
+                            (cons
+                              (cons (string->symbol (keyword->string opt)) arg)
+                              file-opts)
+                            (cdr opts-rest))
+                      (error "Expected string")))
+                  (error "Missing argument to preload")))
                (else
                  (error "Unknown keyword " opt))))
             ((string? opt)
