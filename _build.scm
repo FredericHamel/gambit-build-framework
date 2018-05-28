@@ -134,13 +134,13 @@
   (set! build-dir new-build))
 
 (define (setup)
-  (let* ((target (or (build-info-target info) (c#default-target)))
+  (let* ((target (build-info-target info))
          (target-build-folder-name
            (string-append (##system-version-string) "@" (symbol->string target)))
          (cwd (current-directory))
          (relative-output-directory (path-expand
                                       target-build-folder-name build-dir)))
-    (set! build-dir (path-expand relative-output-directory cwd))
+    (set-build-dir! (path-expand relative-output-directory cwd))
     (create-directory-tree relative-output-directory cwd)))
 
 
