@@ -82,6 +82,14 @@
             (else
               (loop (+ i 1)))))))))
 
+(define (delete-directory-tree dir)
+  (for-each
+    (lambda (subdir)
+      (let ((absolute-subdir (path-expand subdir dir)))
+        (delete-directory-tree absolute-subdir)))
+    (directory-files dir))
+  (delete-directory dir))
+
 ;(create-directory-tree "a/b/c/" (current-directory))
 
 (define (parse-command-line)
