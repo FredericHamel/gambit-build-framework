@@ -42,6 +42,13 @@ while (( $# > 0 )); do
       echo "require-length: ${#required[@]}"
       shift 2
       ;;
+    -:*)
+      gambit_arg=$(shift)
+      ;;
+    --)
+      shift
+      break
+      ;;
     -*)
       echo Invalid hook $1
       exit 1
@@ -53,8 +60,7 @@ while (( $# > 0 )); do
 done
 
 if test -f $PWD/$build_script ; then
-  eval gsc-script -i ${loads[@]} ${required[@]}  $build_script $@
-  wait
+  eval gsc-script $gambit_arg -i ${loads[@]} ${required[@]}  $build_script $@
 else
   echo "File not found $build_script"
   exit 1
