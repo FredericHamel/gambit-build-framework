@@ -8,7 +8,9 @@
 (define-type build-info
   type
   target
-  options)
+  options
+  compile-options
+  linker-options)
 
 (define-type project
   constructor: make-raw-project
@@ -90,40 +92,58 @@
     (directory-files dir))
   (delete-directory dir))
 
+(define (options->string opts)
+  (if (pair? opts)
+    (let loop ((opts (cdr opts)) (result (car opts)))
+      (if (pair? opts)
+        (loop (cdr opts)
+              (string-append result " " (car opts)))
+        result))
+    ""))
+
+
 ;(create-directory-tree "a/b/c/" (current-directory))
 
 (define (parse-command-line)
   (let loop ((cl (cdr (command-line)))
              (type #f)
              (target #f)
-             (options '()))
+             (options '())
+             (compile-options '())
+             (linker-options '()))
     (if (pair? cl)
       (let ((arg (car cl))
             (rest (cdr cl)))
         (cond
           ((string=? arg "-debug")
-           (loop rest type target (cons '(debug) options)))
+           (loop rest type target (cons '(debug) options) compile-options linker-options))
+
           ((string=? arg "-dynamic")
            (if type
              (error "Build type is already defined")
-             (loop rest 'dyn target options)))
+             (loop rest 'dyn target options (cons "-D___DYNAMIC" compile-options) linker-options)))
 
           ((string=? arg "-exe")
            (if type
              (error "Build type is already defined")
-             (loop rest 'exe target options)))
+             (loop rest 'exe target options compile-options linker-options)))
 
           ((string=? arg "-target")
            (if (pair? rest)
              (if target
                (error "Build target is already defined")
                (let ((new-target (string->symbol (car rest))))
-                 (loop (cdr rest) type new-target options)))
+                 (loop (cdr rest) type new-target options compile-options linker-options)))
              (error "Missing argument to -target")))
           (else
             (error (string-append "Not a supported argument '" arg "'")))))
       (make-build-info (or type 'dyn)
-                       (or target (c#default-target)) options))))
+                       (or target (c#default-target))
+                       options
+                       (if type ;; Fallback to default
+                         compile-options
+                         (cons "-D___DYNAMIC" compile-options))
+                       linker-options))))
 
 (define build-dir ".builds/")
 
