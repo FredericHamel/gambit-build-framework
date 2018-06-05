@@ -209,18 +209,15 @@
       (reverse rev-files))))
 
 (define (compile-project! project)
-  (println "project: " project)
-  (and (project? project)
-       (let ((target (build-info-target info)))
+  (println-log "project: " project)
+  (if (project? project)
+       (let ((target (build-info-target info))
+             (cc-options (options->string (build-info-compile-options info))))
          (project-intermediate-files-set! project
            (map (lambda (file-and-opt)
                   (let* ((file (car file-and-opt))
                          (file-ext (path-extension file))
-                         ;; Should not be there.
-                         (prefix (if (eq? project (project-object))
-                                   "src"
-                                   ;; FIXME: project-name is not a good thing
-                                   (project-prefix project))))
+                         (prefix (project-prefix project)))
 
                     (create-directory-tree (path-expand file prefix) build-dir)
                     (let ((targ-file (compile-file-to-target
@@ -232,7 +229,9 @@
                                                  (path-expand
                                                    prefix ;; change dir
                                                    build-dir)))))
-                      (cons targ-file (cdr file-and-opt)))))
+                      (if targ-file
+                        (cons targ-file (cdr file-and-opt))
+                        (exit 1)))))
 
                 (project-source-files project)))
          (project-intermediate-obj-files-set! project
@@ -247,10 +246,11 @@
                                                 (path-directory file)
                                                 build-dir
                                                 #;(path-expand prefix build-dir))
-                                      cc-options: "-D___DYNAMIC")))
+                                      cc-options: cc-options)))
                       obj-file)))
 
-                (project-intermediate-files project))))))
+                (project-intermediate-files project))))
+           (error "Expected a project object.")))
 
 
 (define (libraries #!rest lst)
