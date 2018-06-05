@@ -21,42 +21,47 @@
   linker-options)
 
 ;; Some global state
-(define project-object (make-parameter #f))
+(define project-global-object (make-parameter #f))
+(define project-global-prefix (make-parameter #f))
+
 (define dependency-list (make-parameter '()))
 ;; Last dependancy project object
 (define dependency-object (make-parameter #f))
 
-(define (make-project! name source-files #!optional (linker-options #f))
-  (let ((p (make-raw-project name source-files #f #f linker-options)))
+(define (make-project source-files #!optional (linker-options #f))
+  (let ((p (make-raw-project (or (project-global-prefix) "src")
+                             source-files #f #f linker-options)))
     ;; Dependancy if not main project.
-    (if (project-object)
+    (if (project-global-object)
       (dependency-object p)
-      (project-object p))
+      (project-global-object p))
     p))
 
+;; Backward compatibility.
+(define make-project! make-project)
+
 ;; name: fullname of the library (i.e. github.com/feeley/crypto)
+;;  - the name contain the path that contain the package.sc
 (define (library name)
-  (if (project-object)
+  (if (project-global-object)
     (and
       (not (member name (dependency-list)))
       (let ((fullpath (path-expand
-                        ;; Should allow the build script to be rename
-                        ;; from the command line.
+                        ;; FIXME: Should be a build-info attribute
                         (path-expand "package.sc" name)
-                        (or (getenv "R7RS_LIBRARY_PATH" #f)
-                            (##os-path-gambitdir-map-lookup "R7RS")
-                            "~/.r7rs"))))
+                        (or (##os-path-gambitdir-map-lookup "userlib")
+                            "~/.gambit_userlib"))))
+
         (if (file-exists? fullpath)
           ;; Resolve lib
           (parameterize
-            ;; Clone current build ctx
-            (#;(project-object (project-object))
+            ;; Library fetch ctx
+            ((project-global-prefix name)
              (dependency-object #f))
             (and (not (member name (dependency-list)))
                  (begin
                    (load fullpath)
                    (dependency-list (cons name (dependency-list)))))
-            (project-prefix-set! (dependency-object) name)
             (dependency-object))
 
           (error "FileNotFound: " fullpath))))
@@ -135,8 +140,10 @@
                (let ((new-target (string->symbol (car rest))))
                  (loop (cdr rest) type new-target options compile-options linker-options)))
              (error "Missing argument to -target")))
+
           (else
             (error (string-append "Not a supported argument '" arg "'")))))
+
       (make-build-info (or type 'dyn)
                        (or target (c#default-target))
                        options
@@ -261,7 +268,7 @@
         (libraries (cdr lst))))
     lst))
 
-(define (link project #!key (dependencies #f) (link-options #f))
+(define (link project #!key (dependencies #f) (link-with #f) (link-options #f))
   (compile-project! project)
   #;(if (pair? dependencies)
     (for-each
@@ -270,13 +277,21 @@
       dependencies))
 
   ;; Only if main-project
-  (if (eq? project (project-object))
+  (if (eq? project (project-global-object))
     (let* ((target (build-info-target info))
-           (global-options (build-info-options info)))
+           (global-options (build-info-options info))
+           (type (build-info-type info))
+           (cc-options (options->string (build-info-compile-options info)))
+           (link-options (if link-with
+                           (options->string (cons link-options
+                                                  (map (lambda (lib)
+                                                         ;; Fetch the link arguments
+                                                         (string-append "-l" lib))
+                                                       link-with)))
+                           link-options)))
       ;; Link should be there
-      (case (or (build-info-type info) 'dyn)
+      (case type
         ((dyn)
-         (println "[Notices] Build type 'dyn not completed yet")
          #;(error "Build type 'dyn not implemented yet")
          (let* ((intermediate-files (project-intermediate-files project))
                 (last-file-opt
@@ -300,11 +315,9 @@
                 (link-file-obj
                   (compile-file
                     link-file
-                    options: (cons '(target C) '((obj)))
-                    cc-options: "-D___DYNAMIC")))
-         ; FIXME: change 'C with build-target
-         (println project)
-         (##gambcomp 'C 'dyn build-dir
+                    options: (cons `(target ,target) '((obj)))
+                    cc-options: cc-options)))
+         (##gambcomp target type build-dir
           (##append
             (project-intermediate-obj-files project)
             (##list link-file-obj))
@@ -318,7 +331,53 @@
          (delete-file link-file)))
 
         ((exe)
-         (error "Build type 'exe build not implemented yet"))
+         (let* ((intermediate-files (project-intermediate-files project))
+                (last-file-opt
+                  (list-ref intermediate-files
+                            (- (length intermediate-files) 1)))
+                (last-file
+                  (path-strip-directory
+                    (if (pair? last-file-opt)
+                      (car last-file-opt)
+                      last-file-opt)))
+                (base-link-options (string-append "-L" (path-expand "~~lib/libgambit.a")))
+                (link-file
+                  (link-incremental (project-intermediate-files project)
+                             output: (path-expand
+                                       (string-append
+                                         (path-strip-extension
+                                           last-file)
+                                         ".exe"
+                                         (path-extension last-file))
+                                       build-dir)
+                             warnings?: #f))
+                (link-file-obj
+                  (compile-file
+                    link-file
+                    options: (cons `(target ,target) '((obj)))
+                    cc-options: cc-options)))
+         (##build-executable
+          (##append
+            (project-intermediate-obj-files project)
+            (##list link-file-obj)) ;; FILES
+
+          `((target ,target)) ;; OPTIONS
+
+          (path-expand
+            (path-strip-directory
+              (string-append (path-strip-extension last-file) ".exe"))
+            build-dir) ;; OUTPUT
+
+          "" ;; Empty CC_OPTIONS
+
+          "" ;; LD_OPTIONS_PRELUDE
+
+          (if link-options
+            (string-append base-link-options " " link-options)
+            base-link-options)) ;; LD_OPTIONS
+         (delete-file link-file-obj)
+         (delete-file link-file))
+         #;(error "Build type 'exe build not implemented yet"))
 
         (else
           (error "Build type not supported")))
