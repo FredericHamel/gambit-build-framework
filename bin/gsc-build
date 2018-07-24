@@ -1,0 +1,67 @@
+#!/bin/sh
+
+usage() {
+  echo "$0 [-f build-script] [args ...]"
+}
+
+echo 'This is a huge hack'
+
+SCRIPT_NAME=$(realpath $0)
+SCRIPT_PATH=${SCRIPT_NAME%/*/*}
+
+build_script=package.sc
+
+loads=(-e "'(load \"$SCRIPT_PATH/lib/_build\")'")
+required=()
+
+while (( $# > 0 )); do
+  case $1 in
+    -f)
+      if (( $# < 2 )); then
+        echo Missing argument to $1 hook
+        exit 1
+      fi
+      build_script=$2
+      shift 2
+      ;;
+    -load)
+      if (( $# < 2 )); then
+        echo Missing argument to $1 hook
+        exit 1
+      fi
+      loads+=(-e "'(load \"$2\")'")
+      echo "loads-length: ${#loads[@]}"
+      shift 2
+      ;;
+    -require)
+      if (( $# < 2 )); then
+        echo Missing argument to $1 hook
+        exit 1
+      fi
+      required+=(-e "\"(##load-required-module '$2)\"")
+      echo "require-length: ${#required[@]}"
+      shift 2
+      ;;
+    -:*)
+      gambit_arg=$(shift)
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo Invalid hook $1
+      exit 1
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if test -f $PWD/$build_script ; then
+  eval gsc-script $gambit_arg -i ${loads[@]} ${required[@]}  $build_script $@
+else
+  echo "File not found $build_script"
+  exit 1
+fi
