@@ -10,7 +10,11 @@
   target
   options
   compile-options
-  linker-options)
+  linker-options
+  package-file)
+
+;(define (make-project prefix source-files intermediate-files intermediate-obj-files linker-options)
+;  (vector prefix source-files intermediate-files intermediate-obj-files linker-options))
 
 (define-type project
   constructor: make-raw-project
@@ -115,30 +119,37 @@
              (target #f)
              (options '())
              (compile-options '())
-             (linker-options '()))
+             (package-file #f))
     (if (pair? cl)
       (let ((arg (car cl))
             (rest (cdr cl)))
         (cond
+          ((string=? arg "-f")
+           (if (pair? rest)
+             (if package-file
+               (error "Parameter -f already specified")
+               (loop (cdr rest) type target options compile-options (car rest)))
+             (error "Missing argument to -f")))
+
           ((string=? arg "-debug")
-           (loop rest type target (cons '(debug) options) compile-options linker-options))
+           (loop rest type target (cons '(debug) options) compile-options package-file))
 
           ((string=? arg "-dynamic")
            (if type
              (error "Build type is already defined")
-             (loop rest 'dyn target options (cons "-D___DYNAMIC" compile-options) linker-options)))
+             (loop rest 'dyn target options (cons "-D___DYNAMIC" compile-options package-file))))
 
           ((string=? arg "-exe")
            (if type
              (error "Build type is already defined")
-             (loop rest 'exe target options compile-options linker-options)))
+             (loop rest 'exe target options compile-options package-file)))
 
           ((string=? arg "-target")
            (if (pair? rest)
              (if target
                (error "Build target is already defined")
                (let ((new-target (string->symbol (car rest))))
-                 (loop (cdr rest) type new-target options compile-options linker-options)))
+                 (loop (cdr rest) type new-target options compile-options package-file)))
              (error "Missing argument to -target")))
 
           (else
@@ -150,9 +161,10 @@
                        (if type ;; Fallback to default
                          compile-options
                          (cons "-D___DYNAMIC" compile-options))
-                       linker-options))))
+                       #f
+                       (or package-file "package.sc")))))
 
-(define build-dir ".builds/")
+(define build-dir ".builds/") ; this is relative to current project directory
 
 (define info
   (parse-command-line))
@@ -506,3 +518,5 @@
            (string-append (path-strip-extension last-file) ".o1"))
          build-dir)
        #f '()))))
+
+(load (build-info-package-file info))
