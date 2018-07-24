@@ -8,7 +8,7 @@
 
 (link
   (make-project!
-    (add-sources preload: #f "_build.scm")
+    (add-sources "_build.scm")
     link-base: "~~lib/libgambitgsc.a"
     options: '((l "~~lib/_gambitgsc.c")))
   ;link-options: "-lX11"
