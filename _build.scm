@@ -4,14 +4,16 @@
 (##include "~~lib/gambit#.scm")
 (##include "~~lib/_gambit#.scm")
 
-;; Maybe at more meta-info
-(define-type build-info
-  type
+;; Define default options
+(define-macro (macro-default-script-filename) "package.sc")
+
+;; Options pass on the command line.
+(define-type buildref
+  file type
   target
-  options
-  compile-options
-  linker-options
-  package-file)
+  opts
+  compile-opts
+  linker-opts)
 
 ;(define (make-project prefix source-files intermediate-files intermediate-obj-files linker-options)
 ;  (vector prefix source-files intermediate-files intermediate-obj-files linker-options))
@@ -22,19 +24,23 @@
   source-files ;; With options
   intermediate-files
   intermediate-obj-files
-  linker-options)
+  link-base ;; Used in link-incremental
+  options)
+
+(define current-build-directory (make-parameter #f))
 
 ;; Some global state
 (define project-global-object (make-parameter #f))
 (define project-global-prefix (make-parameter #f))
 
 (define dependency-list (make-parameter '()))
+
 ;; Last dependancy project object
 (define dependency-object (make-parameter #f))
 
-(define (make-project source-files #!optional (linker-options #f))
+(define (make-project source-files #!key (options #f) (link-base #f))
   (let ((p (make-raw-project (or (project-global-prefix) "src")
-                             source-files #f #f linker-options)))
+                             source-files #f #f link-base options)))
     ;; Dependancy if not main project.
     (if (project-global-object)
       (dependency-object p)
@@ -51,7 +57,7 @@
     (and
       (not (member name (dependency-list)))
       (let ((fullpath (path-expand
-                        ;; FIXME: Should be a build-info attribute
+                        ;; FIXME: Should be a buildref attribute
                         (path-expand "package.sc" name)
                         (or (##os-path-gambitdir-map-lookup "userlib")
                             "~/.gambit_userlib"))))
@@ -77,6 +83,7 @@
   (if (< verbosity verbosity-level)
     (apply println args)))
 
+;; Create directory if it does not exist.
 (define (mkdir dir)
   (if (not (file-exists? dir))
     (create-directory dir)))
@@ -115,72 +122,74 @@
 
 (define (parse-command-line)
   (let loop ((cl (cdr (command-line)))
-             (type #f)
-             (target #f)
+             (file #f) (type #f) (target #f)
              (options '())
              (compile-options '())
-             (package-file #f))
+             (link-options '()))
     (if (pair? cl)
       (let ((arg (car cl))
             (rest (cdr cl)))
         (cond
           ((string=? arg "-f")
            (if (pair? rest)
-             (if package-file
+             (if file
                (error "Parameter -f already specified")
-               (loop (cdr rest) type target options compile-options (car rest)))
+               (loop (cdr rest) (car rest) type target options compile-options link-options))
              (error "Missing argument to -f")))
 
           ((string=? arg "-debug")
-           (loop rest type target (cons '(debug) options) compile-options package-file))
+           (loop rest file type target (cons '(debug) options) compile-options link-options))
+
+          ((string=? arg "-verbose")
+           (loop rest file type target (cons '(verbose) options) compile-options link-options))
 
           ((string=? arg "-dynamic")
            (if type
              (error "Build type is already defined")
-             (loop rest 'dyn target options (cons "-D___DYNAMIC" compile-options package-file))))
+             (loop rest file 'dyn target options (cons "-D___DYNAMIC" compile-options link-options))))
 
           ((string=? arg "-exe")
            (if type
              (error "Build type is already defined")
-             (loop rest 'exe target options compile-options package-file)))
+             (loop rest file 'exe target options compile-options link-options)))
 
           ((string=? arg "-target")
            (if (pair? rest)
              (if target
                (error "Build target is already defined")
                (let ((new-target (string->symbol (car rest))))
-                 (loop (cdr rest) type new-target options compile-options package-file)))
+                 (loop (cdr rest) file type new-target options compile-options link-options)))
              (error "Missing argument to -target")))
+
+          ;; TODO: add some link-options
 
           (else
             (error (string-append "Not a supported argument '" arg "'")))))
 
-      (make-build-info (or type 'dyn)
-                       (or target (c#default-target))
-                       options
-                       (if type ;; Fallback to default
-                         compile-options
-                         (cons "-D___DYNAMIC" compile-options))
-                       #f
-                       (or package-file "package.sc")))))
+      (make-buildref
+        (or file (macro-default-script-filename))
+        (or type 'dyn)
+        (or target (c#default-target))
+        options
+        (if type ;; Fallback to default
+          compile-options
+          ;; Need this to build dynamic library.
+          (cons "-D___DYNAMIC" compile-options))
+        link-options))))
 
-(define build-dir ".builds/") ; this is relative to current project directory
 
-(define info
-  (parse-command-line))
 
-(define (set-build-dir! new-build)
-  (set! build-dir new-build))
 
 (define (setup)
-  (let* ((target (build-info-target info))
-         (target-build-folder-name
-           (string-append (##system-version-string) "@" (symbol->string target)))
+  (let* ((target (buildref-target info))
+         (system-configuration-string
+           (string-append (system-version-string) "@" (symbol->string target)))
          (cwd (current-directory))
-         (relative-output-directory (path-expand
-                                      target-build-folder-name build-dir)))
-    (set-build-dir! (path-expand relative-output-directory cwd))
-    (create-directory-tree relative-output-directory cwd)))
+         (build-directory-name (string-append ".gambit_" system-configuration-string)))
+    (mkdir build-directory-name)
+
+    (current-build-directory
+      (path-expand build-directory-name cwd))))
 
 
 (define (add-sources arg #!rest args)
@@ -230,15 +239,15 @@
 (define (compile-project! project)
   (println-log "project: " project)
   (if (project? project)
-       (let ((target (build-info-target info))
-             (cc-options (options->string (build-info-compile-options info))))
+       (let ((target (buildref-target info))
+             (cc-options (options->string (buildref-compile-opts info))))
          (project-intermediate-files-set! project
            (map (lambda (file-and-opt)
                   (let* ((file (car file-and-opt))
                          (file-ext (path-extension file))
                          (prefix (project-prefix project)))
 
-                    (create-directory-tree (path-expand file prefix) build-dir)
+                    (create-directory-tree (path-expand file prefix) (current-build-directory))
                     (let ((targ-file (compile-file-to-target
                                        file
                                        options: `((target ,target))
@@ -247,7 +256,7 @@
                                                    file)
                                                  (path-expand
                                                    prefix ;; change dir
-                                                   build-dir)))))
+                                                   (current-build-directory))))))
                       (if targ-file
                         (cons targ-file (cdr file-and-opt))
                         (exit 1)))))
@@ -263,8 +272,8 @@
                                       options: `((obj))
                                       output: (path-expand
                                                 (path-directory file)
-                                                build-dir
-                                                #;(path-expand prefix build-dir))
+                                                (current-build-directory)
+                                                #;(path-expand prefix (current-build-directory)))
                                       cc-options: cc-options)))
                       obj-file)))
 
@@ -290,10 +299,10 @@
 
   ;; Only if main-project
   (if (eq? project (project-global-object))
-    (let* ((target (build-info-target info))
-           (global-options (build-info-options info))
-           (type (build-info-type info))
-           (cc-options (options->string (build-info-compile-options info)))
+    (let* ((target (buildref-target info))
+           (global-options (buildref-opts info))
+           (type (buildref-type info))
+           (cc-options (options->string (buildref-compile-opts info)))
            (link-options (if link-with
                            (options->string (cons link-options
                                                   (map (lambda (lib)
@@ -322,14 +331,14 @@
                                            last-file)
                                          ".o1"
                                          (path-extension last-file))
-                                       build-dir)
+                                       (current-build-directory))
                              warnings?: #f))
                 (link-file-obj
                   (compile-file
                     link-file
                     options: (cons `(target ,target) '((obj)))
                     cc-options: cc-options)))
-         (##gambcomp target type build-dir
+         (##gambcomp target type (current-build-directory)
           (##append
             (project-intermediate-obj-files project)
             (##list link-file-obj))
@@ -337,7 +346,7 @@
           (path-expand
             (path-strip-directory
               (string-append (path-strip-extension last-file) ".o1"))
-            build-dir)
+            (current-build-directory))
           #f (if link-options (##list (##cons "LD_OPTIONS" link-options)) '()))
          (delete-file link-file-obj)
          (delete-file link-file)))
@@ -352,17 +361,17 @@
                     (if (pair? last-file-opt)
                       (car last-file-opt)
                       last-file-opt)))
-                (base-link-options (string-append "-L" (path-expand "~~lib/libgambit.a")))
+                (base-link-options (path-expand
+                                     (or
+                                       (project-link-base project)
+                                       "~~lib/libgambit.a")))
                 (link-file
                   (link-incremental (project-intermediate-files project)
-                             output: (path-expand
-                                       (string-append
-                                         (path-strip-extension
-                                           last-file)
-                                         ".exe"
-                                         (path-extension last-file))
-                                       build-dir)
-                             warnings?: #f))
+                                    output: (current-build-directory)
+                                    base: (path-expand (cond
+                                                         ((assq 'l (project-options project)) => cadr)
+                                                         (else "~~lib/_gambit.c")))
+                                    warnings?: #f))
                 (link-file-obj
                   (compile-file
                     link-file
@@ -377,8 +386,8 @@
 
           (path-expand
             (path-strip-directory
-              (string-append (path-strip-extension last-file) ".exe"))
-            build-dir) ;; OUTPUT
+              (path-strip-extension last-file))
+            (current-build-directory)) ;; OUTPUT
 
           "" ;; Empty CC_OPTIONS
 
@@ -413,7 +422,7 @@
         (lambda (file)
           (delete-file file))
         (project-intermediate-obj-files project))
-      (delete-directory (path-expand "src" build-dir)))
+      (delete-directory (path-expand "src" (current-build-directory))))
     #;(add-linker-options project-object link-options)))
 
 (define intermediate-files '())
@@ -421,7 +430,7 @@
 ;; Use a list.
 (define (compile arg #!rest args)
   (println "[deprecated] `compile` will be removed in future version")
-  (let ((target (build-info-target info)))
+  (let ((target (buildref-target info)))
     (let loop ((rev-files '())
                (file-opts '())
                (rest (cons arg args)))
@@ -468,7 +477,7 @@
                           (file-ext (path-extension file))
                           ;; Should not be there.
                           (prefix "src"))
-                     (create-directory-tree (path-expand file prefix) build-dir)
+                     (create-directory-tree (path-expand file prefix) (current-build-directory))
                      (let ((targ-file (compile-file-to-target
                                         file
                                         options: `((target ,target) (debug))
@@ -477,7 +486,7 @@
                                                     file)
                                                   (path-expand
                                                     prefix ;; change dir
-                                                    build-dir)))))
+                                                    (current-build-directory))))))
                          (cons targ-file (cdr file-and-opt)))))
                  files-lst)))))))
 
@@ -489,9 +498,9 @@
                     (- (length intermediate-files) 1)))
          (last-file (path-strip-directory
                       (if (pair? last-file-opt) (car last-file-opt) last-file-opt)))
-         (target (build-info-target info))
+         (target (buildref-target info))
          (options (cons `(target ,target)
-                        (cons '(obj) (build-info-options info)))))
+                        (cons '(obj) (buildref-options info)))))
     (let ((link-intermediate
             (link-flat intermediate-files
                        output: (path-expand
@@ -499,7 +508,7 @@
                                    (path-strip-extension last-file)
                                    ".o1"
                                    (path-extension last-file))
-                                 build-dir)
+                                 (current-build-directory))
                        warnings?: #f)))
       (##gambcomp target 'dyn #f
        (append
@@ -516,7 +525,12 @@
        (path-expand
          (path-strip-directory
            (string-append (path-strip-extension last-file) ".o1"))
-         build-dir)
+         (current-build-directory))
        #f '()))))
 
-(load (build-info-package-file info))
+
+;; Main
+(define info
+  (parse-command-line))
+
+(load (buildref-file info))

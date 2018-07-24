@@ -2,14 +2,15 @@
 ; (##require-module _build)
 ;(macro-load-build)
 
-(build#setup)
+(include "_build#.scm")
 
-(build#link
-  (build#make-project!
-    (build#add-sources preload: #f "_build.scm"
-                       (path-expand "~~lib/_gambitgsc.c"))
-    options: '((ld-options "~~lib/libgambitgsc.a")
-               (l "~~lib/_gambitgsc.c))
+(setup)
+
+(link
+  (make-project!
+    (add-sources preload: #f "_build.scm")
+    link-base: "~~lib/libgambitgsc.a"
+    options: '((l "~~lib/_gambitgsc.c")))
   ;link-options: "-lX11"
   )
 
