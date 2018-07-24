@@ -8,30 +8,38 @@ Summary
 This is a basic build framework to allow the build
 of module using a simple syntax.
 
+
+Syntax
+======
+Here is a possible example of a ***package.sc*** which
+specify how to build the project.
+
+```
+;; Specify a project with a single file "main.scm" linked against X11
+(build#setup)
+(build#link
+  (build#make-project
+    (build#add-source preload: #t "main.scm"))
+  link-with: "X11")
+```
+
 Compilation
 ===========
-This library can be compile to a `.oN` by simply running
-the compiler gsc-script on the file `\_build.scm`.
+This library is simply compiled with the ``build.sh`` script.
+The generated executable is placed under the bin folder.
 
-This can also be build using the `meson.build` script
-and ninja like follow:
 ```
-> meson . build
-> ninja -C build
+> ./build.sh
 ```
 
-This will create both a `.c` and `.o1`.
-
-Test
-====
-As a simple test there is a `_build-test.scm` that own the compilation rule to `test.scm`.
-To run the test:
+The execution of ***package.sc*** is done by using the generated program (./bin/\_build).
+This will rebuild this program by using itself,
+the generated executable is located under the folder ***$PWD/.gambit_v4.8.9@C***.
 ```
-> gsc-script -i _build-test.scm
-...
->
+% ./bin/_build -exe
+/a/b/c/.gambit\_v4.8.9@C/_build
+%
 ```
-A directory `.builds` should be created with the build.
 
 Installation
 ============
