@@ -38,7 +38,7 @@
 ;; Last dependancy project object
 (define dependency-object (make-parameter #f))
 
-(define (make-project source-files #!key (options #f) (link-base #f))
+(define (make-project source-files #!key (link-base #f) (options '()))
   (let ((p (make-raw-project (or (project-global-prefix) "src")
                              source-files #f #f link-base options)))
     ;; Dependancy if not main project.
