@@ -153,6 +153,13 @@
              (error "Build type is already defined")
              (loop rest file 'exe target options compile-options link-options)))
 
+          ((string=? arg "-load")
+           (if (pair? rest)
+             (begin
+               (load (car rest))
+               (loop (cdr rest) file type target options compile-options link-options))
+             (error "Missing argument to -load")))
+
           ((string=? arg "-target")
            (if (pair? rest)
              (if target
