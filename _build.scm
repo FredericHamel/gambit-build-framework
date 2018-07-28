@@ -220,6 +220,19 @@
                           (cdr opts-rest))
                     (error "Expected boolean")))
                 (error "Missing argument to preload")))
+
+             ((linker-name:)
+              (if (pair? opts-rest)
+                (let ((libname (car opts-rest)))
+                  (if (string? libname)
+                    (loop rev-files
+                          (cons
+                            (cons 'linker-name libname)
+                            file-opts)
+                          (cdr opts-rest))
+                    (error "Expected string")))
+                (error "Missing argument to linker-name")))
+
              ((ld-options:)
               ; macro-check-string arg n (add-source arg . args) ...
               (if (pair? opts-rest)
@@ -252,7 +265,12 @@
            (map (lambda (file-and-opt)
                   (let* ((file (car file-and-opt))
                          (file-ext (path-extension file))
-                         (prefix (project-prefix project)))
+                         (prefix (project-prefix project))
+                         (opt-linker-name
+                           (cond
+                             ((assoc 'linker-name (cdr file-and-opt))
+                              => cdr)
+                             (else (macro-absent-obj)))))
 
                     (create-directory-tree (path-expand file prefix) (current-build-directory))
                     (let ((targ-file (compile-file-to-target
@@ -263,7 +281,9 @@
                                                    file)
                                                  (path-expand
                                                    prefix ;; change dir
-                                                   (current-build-directory))))))
+                                                   (current-build-directory)))
+                                       module-name: opt-linker-name
+                                       linker-name: opt-linker-name)))
                       (if targ-file
                         (cons targ-file (cdr file-and-opt))
                         (exit 1)))))
