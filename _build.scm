@@ -189,14 +189,12 @@
 
 (define (setup)
   (let* ((target (buildref-target info))
-         (system-configuration-string
-           (string-append (system-version-string) "@" (symbol->string target)))
          (cwd (current-directory))
-         (build-directory-name (string-append ".gambit_" system-configuration-string)))
-    (mkdir build-directory-name)
+         (build-subdirectory-name (##build-subdir-name target)))
+    (mkdir build-subdirectory-name)
 
     (current-build-directory
-      (path-expand build-directory-name cwd))))
+      (path-expand build-subdirectory-name cwd))))
 
 
 (define (add-sources arg #!rest args)
