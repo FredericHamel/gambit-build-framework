@@ -37,7 +37,7 @@ This will rebuild this program by using itself,
 the generated executable is located under the folder ***$PWD/.gambit_v4.8.9@C***.
 ```
 % ./bin/_build -exe
-/a/b/c/.gambit\_v4.8.9@C/_build
+/a/b/c/.gambit\_vX.Y.Z@C/_build
 %
 ```
 
