@@ -2,6 +2,6 @@
 (namespace ("build#"
             add-sources
             link
-            make-project!
+            make-project
             setup))
 

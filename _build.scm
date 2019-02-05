@@ -48,9 +48,6 @@
       (project-global-object p))
     p))
 
-;; Backward compatibility.
-(define make-project! make-project)
-
 ;; name: fullname of the library (i.e. github.com/feeley/crypto)
 ;;  - the name contain the path that contain the package.sc
 (define (library name)
