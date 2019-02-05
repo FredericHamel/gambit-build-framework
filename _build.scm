@@ -6,6 +6,7 @@
 
 ;; Define default options
 (define-macro (macro-default-script-filename) "package.sc")
+(define-macro (macro-build-header) (path-expand "_build#.scm"))
 
 ;; Options pass on the command line.
 (define-type buildref
@@ -558,4 +559,5 @@
 (define info
   (parse-command-line))
 
-(load (buildref-file info))
+(eval `(##begin (##include ,(macro-build-header)) (##include ,(buildref-file info))))
+
